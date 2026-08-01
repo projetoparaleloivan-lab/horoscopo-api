@@ -95,6 +95,12 @@ app.post('/api/criar-sessao', (req, res) => {
 
 // POST /api/webhook/kiwify
 app.post('/api/webhook/kiwify', (req, res) => {
+  const tokenRecebido = req.query.token || req.headers['x-kiwify-token'] || '';
+  if (KIWIFY_SECRET && tokenRecebido !== KIWIFY_SECRET) {
+    console.warn('[KIWIFY] token inválido:', tokenRecebido);
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
   res.json({ ok: true });
 
   console.log('[KIWIFY] payload:', JSON.stringify(req.body));
