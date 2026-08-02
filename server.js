@@ -3,7 +3,8 @@ const Database = require('better-sqlite3');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
 const Anthropic = require('@anthropic-ai/sdk');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 const fs = require('fs');
 const path = require('path');
 
@@ -751,8 +752,10 @@ async function gerarPDF(lead, relatorioBruto) {
   const pdfPath = path.join(PDF_DIR, `horoscopo_${lead.uuid}.pdf`);
 
   const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless
   });
 
   try {
