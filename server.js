@@ -794,10 +794,10 @@ app.use((req, res, next) => {
 
 // POST /api/criar-sessao
 app.post('/api/criar-sessao', (req, res) => {
-  const { nome, email, nascimento, signo, area, situacao, sentimento, sinais } = req.body;
+  const { uuid: uuidRecebido, nome, email, nascimento, signo, area, situacao, sentimento, sinais } = req.body;
   if (!nome) return res.status(400).json({ error: 'nome obrigatório' });
 
-  const uuid = gerarUUID();
+  const uuid = uuidRecebido || gerarUUID();
   db.prepare(`
     INSERT INTO leads (uuid, nome, email, nascimento, signo, area, situacao, sentimento, sinais)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -899,6 +899,28 @@ app.get('/api/pdf/:uuid', async (req, res) => {
     console.error('[PDF] erro ao servir:', e.message);
     res.status(500).json({ error: 'erro ao gerar PDF', detalhe: e.message });
   }
+});
+
+// POST /api/admin/gerar/:uuid — força geração do relatório (sem verificar paid)
+app.post('/api/admin/gerar/:uuid', async (req, res) => {
+  const lead = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(req.params.uuid);
+  if (!lead) return res.status(404).json({ error: 'lead não encontrado' });
+
+  db.prepare('UPDATE leads SET paid = 1 WHERE uuid = ?').run(req.params.uuid);
+  res.json({ ok: true, msg: 'gerando relatório em background...' });
+
+  const leadAtualizado = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(req.params.uuid);
+  gerarRelatorio(leadAtualizado).then(async relatorio => {
+    if (!relatorio) return;
+    db.prepare('UPDATE leads SET relatorio = ? WHERE uuid = ?').run(relatorio, req.params.uuid);
+    try {
+      const pdfPath = await gerarPDF(leadAtualizado, relatorio);
+      db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, req.params.uuid);
+      console.log(`[ADMIN] PDF pronto para uuid=${req.params.uuid}`);
+    } catch (e) {
+      console.error('[ADMIN] erro PDF:', e.message);
+    }
+  }).catch(console.error);
 });
 
 const PORT = process.env.PORT || 3000;
