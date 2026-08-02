@@ -15,7 +15,11 @@ app.use(express.json());
 const PDF_DIR = '/tmp/pdfs';
 if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 
-const db = new Database('horoscopo.db');
+const DB_PATH = process.env.DB_PATH || '/data/horoscopo.db';
+if (!fs.existsSync(path.dirname(DB_PATH))) {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
+const db = new Database(DB_PATH);
 db.exec(`
   CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -899,6 +903,32 @@ app.get('/api/pdf/:uuid', async (req, res) => {
     console.error('[PDF] erro ao servir:', e.message);
     res.status(500).json({ error: 'erro ao gerar PDF', detalhe: e.message });
   }
+});
+
+// POST /api/admin/inserir-e-gerar — insere lead manualmente e gera relatório
+app.post('/api/admin/inserir-e-gerar', async (req, res) => {
+  const { uuid, nome, email, nascimento, signo, area, situacao, sentimento, sinais } = req.body;
+  if (!uuid || !nome) return res.status(400).json({ error: 'uuid e nome obrigatórios' });
+
+  db.prepare(`
+    INSERT OR REPLACE INTO leads (uuid, nome, email, nascimento, signo, area, situacao, sentimento, sinais, paid)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `).run(uuid, nome, email || '', nascimento || '', signo || '', area || '', situacao || '', sentimento || '', sinais || '');
+
+  res.json({ ok: true, msg: 'lead inserido, gerando relatório em background...' });
+
+  const lead = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(uuid);
+  gerarRelatorio(lead).then(async relatorio => {
+    if (!relatorio) return;
+    db.prepare('UPDATE leads SET relatorio = ? WHERE uuid = ?').run(relatorio, uuid);
+    try {
+      const pdfPath = await gerarPDF(lead, relatorio);
+      db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, uuid);
+      console.log(`[ADMIN] PDF pronto uuid=${uuid}`);
+    } catch (e) {
+      console.error('[ADMIN] erro PDF:', e.message);
+    }
+  }).catch(console.error);
 });
 
 // POST /api/admin/gerar/:uuid — força geração do relatório (sem verificar paid)
