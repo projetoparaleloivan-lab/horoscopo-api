@@ -243,7 +243,10 @@ function gerarHTML(lead, dados) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Horóscopo VIP · ${lead.nome} · ${mesAno}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&display=swap');
+  @font-face {
+    font-family: 'Cinzel';
+    src: local('Georgia'), local('Times New Roman'), local('serif');
+  }
 
   :root {
     --bg-profundo: #070510;
@@ -265,7 +268,7 @@ function gerarHTML(lead, dados) {
   body {
     background: var(--bg-profundo);
     color: var(--texto-marfim);
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
     font-size: 13pt;
     line-height: 1.8;
   }
@@ -327,7 +330,7 @@ function gerarHTML(lead, dados) {
   }
 
   .capa-badge {
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
     font-size: 8pt;
     font-weight: 600;
     letter-spacing: 4px;
@@ -352,7 +355,7 @@ function gerarHTML(lead, dados) {
   }
 
   .capa-subtitulo {
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
     font-size: 9pt;
     font-weight: 500;
     letter-spacing: 5px;
@@ -362,7 +365,7 @@ function gerarHTML(lead, dados) {
   }
 
   .capa-nome {
-    font-family: 'Cinzel', serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 32pt;
     font-weight: 700;
     background: linear-gradient(135deg, var(--dourado-claro), var(--dourado-sol));
@@ -374,7 +377,7 @@ function gerarHTML(lead, dados) {
   }
 
   .capa-signo {
-    font-family: 'Cinzel', serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 15pt;
     font-weight: 400;
     color: var(--texto-suave);
@@ -390,7 +393,7 @@ function gerarHTML(lead, dados) {
   }
 
   .capa-titulo-principal {
-    font-family: 'Cinzel', serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 24pt;
     font-weight: 900;
     background: linear-gradient(135deg, var(--dourado-sol), var(--dourado-claro), var(--magenta-astral));
@@ -402,7 +405,7 @@ function gerarHTML(lead, dados) {
   }
 
   .capa-mes {
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
     font-size: 11pt;
     font-weight: 300;
     letter-spacing: 3px;
@@ -429,7 +432,7 @@ function gerarHTML(lead, dados) {
     position: absolute;
     top: 12mm;
     right: 16mm;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
     font-size: 7.5pt;
     color: var(--texto-dimmer);
     letter-spacing: 2px;
@@ -444,7 +447,7 @@ function gerarHTML(lead, dados) {
   }
 
   .secao-titulo {
-    font-family: 'Cinzel', serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 20pt;
     font-weight: 700;
     text-align: center;
@@ -544,7 +547,7 @@ function gerarHTML(lead, dados) {
   }
 
   .afirmacao-numero {
-    font-family: 'Cinzel', serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 18pt;
     font-weight: 700;
     background: linear-gradient(135deg, var(--magenta-astral), var(--lilas-brilhante));
@@ -582,7 +585,7 @@ function gerarHTML(lead, dados) {
   }
 
   .mensagem-aspas {
-    font-family: 'Cinzel', serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-size: 48pt;
     background: linear-gradient(135deg, var(--magenta-astral), var(--lilas-brilhante));
     -webkit-background-clip: text;
@@ -761,9 +764,15 @@ async function gerarPDF(lead, relatorioBruto) {
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
-
-    // Aguarda carregamento das fontes do Google
+    await page.setRequestInterception(true);
+    page.on('request', req => {
+      if (req.resourceType() === 'font' || req.url().includes('fonts.googleapis') || req.url().includes('fonts.gstatic')) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.evaluate(() => document.fonts.ready);
 
     await page.pdf({
