@@ -959,5 +959,33 @@ app.post('/api/admin/gerar/:uuid', async (req, res) => {
   }).catch(console.error);
 });
 
+// ─── KAIQUE LEADS ────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS kaique_leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT,
+    whatsapp TEXT,
+    categoria TEXT,
+    utm_source TEXT,
+    utm_campaign TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )
+`);
+
+app.post('/api/kaique/lead', (req, res) => {
+  const { nome, whatsapp, categoria, utm_source, utm_campaign } = req.body;
+  db.prepare(`
+    INSERT INTO kaique_leads (nome, whatsapp, categoria, utm_source, utm_campaign)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(nome || '', whatsapp || '', categoria || '', utm_source || '', utm_campaign || '');
+  console.log(`[KAIQUE] lead: ${nome} | ${whatsapp} | ${categoria}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/kaique/leads', (req, res) => {
+  const leads = db.prepare('SELECT * FROM kaique_leads ORDER BY created_at DESC LIMIT 200').all();
+  res.json(leads);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`[SERVER] rodando na porta ${PORT}`));
