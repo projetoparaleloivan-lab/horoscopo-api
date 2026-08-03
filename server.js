@@ -960,6 +960,9 @@ app.post('/api/admin/gerar/:uuid', async (req, res) => {
 });
 
 // ─── KAIQUE LEADS ────────────────────────────────────────────────────────────
+const KAIQUE_PIXEL_ID    = process.env.KAIQUE_PIXEL_ID    || '912547404676067';
+const KAIQUE_ACCESS_TOKEN = process.env.KAIQUE_ACCESS_TOKEN || '';
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS kaique_leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -968,18 +971,61 @@ db.exec(`
     categoria TEXT,
     utm_source TEXT,
     utm_campaign TEXT,
+    event_id TEXT,
+    fbp TEXT,
+    fbc TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )
 `);
+try { db.exec(`ALTER TABLE kaique_leads ADD COLUMN event_id TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE kaique_leads ADD COLUMN fbp TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE kaique_leads ADD COLUMN fbc TEXT`); } catch(e) {}
+
+async function sendKaiqueCapiEvent(nome, whatsapp, eventId, fbp, fbc, userAgent) {
+  if (!KAIQUE_ACCESS_TOKEN) return;
+  const userData = {};
+  if (nome) userData.fn = [sha256(nome.split(' ')[0])];
+  if (whatsapp) {
+    const phone = whatsapp.replace(/\D/g, '');
+    const phoneNorm = phone.startsWith('55') ? phone : '55' + phone;
+    userData.ph = [sha256(phoneNorm)];
+  }
+  if (fbp) userData.fbp = fbp;
+  if (fbc) userData.fbc = fbc;
+  if (userAgent) userData.client_user_agent = userAgent;
+
+  const payload = {
+    data: [{
+      event_name: 'Lead',
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: eventId || ('kaique_lead_' + Date.now()),
+      action_source: 'website',
+      user_data: userData
+    }]
+  };
+
+  try {
+    await fetch(`https://graph.facebook.com/v19.0/${KAIQUE_PIXEL_ID}/events?access_token=${KAIQUE_ACCESS_TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    console.log('[KAIQUE CAPI] Lead disparado');
+  } catch(e) {
+    console.error('[KAIQUE CAPI] erro:', e.message);
+  }
+}
 
 app.post('/api/kaique/lead', (req, res) => {
-  const { nome, whatsapp, categoria, utm_source, utm_campaign } = req.body;
+  const { nome, whatsapp, categoria, utm_source, utm_campaign, event_id, fbp, fbc, user_agent } = req.body;
   db.prepare(`
-    INSERT INTO kaique_leads (nome, whatsapp, categoria, utm_source, utm_campaign)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(nome || '', whatsapp || '', categoria || '', utm_source || '', utm_campaign || '');
+    INSERT INTO kaique_leads (nome, whatsapp, categoria, utm_source, utm_campaign, event_id, fbp, fbc)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(nome || '', whatsapp || '', categoria || '', utm_source || '', utm_campaign || '', event_id || '', fbp || '', fbc || '');
   console.log(`[KAIQUE] lead: ${nome} | ${whatsapp} | ${categoria}`);
   res.json({ ok: true });
+
+  sendKaiqueCapiEvent(nome, whatsapp, event_id, fbp, fbc, user_agent).catch(console.error);
 });
 
 app.get('/api/kaique/leads', (req, res) => {
