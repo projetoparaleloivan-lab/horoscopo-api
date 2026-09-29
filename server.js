@@ -66,6 +66,7 @@ db.exec(`
 const PIXEL_ID = process.env.PIXEL_ID || '834191219576803';
 const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
 const KIWIFY_SECRET = process.env.KIWIFY_SECRET || '';
+const ADMIN_TEST_TOKEN = process.env.ADMIN_TEST_TOKEN || KIWIFY_SECRET;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const RESEND_FROM = process.env.RESEND_FROM || '';
@@ -1216,6 +1217,10 @@ app.post('/api/admin/inserir-e-gerar', async (req, res) => {
 
 // POST /api/admin/gerar/:uuid — força geração do relatório (sem verificar paid)
 app.post('/api/admin/gerar/:uuid', async (req, res) => {
+  const token = req.headers['x-admin-test-token'] || req.query.token || '';
+  if (!ADMIN_TEST_TOKEN || token !== ADMIN_TEST_TOKEN) {
+    return res.status(401).json({ error: 'não autorizado' });
+  }
   const lead = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(req.params.uuid);
   if (!lead) return res.status(404).json({ error: 'lead não encontrado' });
 
@@ -1230,6 +1235,8 @@ app.post('/api/admin/gerar/:uuid', async (req, res) => {
       const pdfPath = await gerarPDF(leadAtualizado, relatorio);
       db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, req.params.uuid);
       console.log(`[ADMIN] PDF pronto para uuid=${req.params.uuid}`);
+      const leadComPdf = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(req.params.uuid);
+      await enviarRelatorioPorEmail(leadComPdf, pdfPath);
     } catch (e) {
       console.error('[ADMIN] erro PDF:', e.message);
     }
