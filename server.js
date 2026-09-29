@@ -40,6 +40,7 @@ db.exec(`
     paid INTEGER DEFAULT 0,
     relatorio TEXT,
     pdf_path TEXT,
+    email_enviado_at TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )
 `);
@@ -51,6 +52,7 @@ try { db.exec(`ALTER TABLE leads ADD COLUMN horario TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN cidade TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN intencao TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN mapa_natal TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN email_enviado_at TEXT`); } catch(e) {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS geocodes (
     cidade TEXT PRIMARY KEY,
@@ -65,8 +67,40 @@ const PIXEL_ID = process.env.PIXEL_ID || '834191219576803';
 const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
 const KIWIFY_SECRET = process.env.KIWIFY_SECRET || '';
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_FROM = process.env.RESEND_FROM || '';
 
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
+
+async function enviarRelatorioPorEmail(lead, pdfPath) {
+  if (!RESEND_API_KEY || !RESEND_FROM) {
+    console.warn('[EMAIL] RESEND_API_KEY/RESEND_FROM não configurados; envio ignorado');
+    return false;
+  }
+  if (!lead.email || !pdfPath || !fs.existsSync(pdfPath)) return false;
+  if (lead.email_enviado_at) return true;
+
+  const pdfBase64 = fs.readFileSync(pdfPath).toString('base64');
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [lead.email],
+      subject: 'Seu mapa astral completo está pronto ✨',
+      html: `<p>Olá, ${lead.nome || 'tudo bem'}!</p><p>Seu mapa astral completo está pronto. O PDF com a sua leitura está em anexo.</p><p>Boa leitura! ✨</p>`,
+      attachments: [{ filename: `Mapa_Astral_${lead.nome || 'completo'}.pdf`, content: pdfBase64 }]
+    })
+  });
+  if (!response.ok) throw new Error(`Resend respondeu ${response.status}: ${await response.text()}`);
+
+  db.prepare("UPDATE leads SET email_enviado_at = datetime('now') WHERE uuid = ?").run(lead.uuid);
+  console.log(`[EMAIL] relatório enviado uuid=${lead.uuid} para=${lead.email}`);
+  return true;
+}
 
 function sha256(value) {
   if (!value) return null;
@@ -1092,6 +1126,8 @@ app.post('/api/webhook/kiwify', (req, res) => {
       const pdfPath = await gerarPDF(leadAtualizado, relatorio);
       db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, uuid);
       console.log(`[PDF] caminho salvo no DB para uuid=${uuid}`);
+      const leadComPdf = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(uuid);
+      await enviarRelatorioPorEmail(leadComPdf, pdfPath);
     } catch (pdfErr) {
       console.error('[PDF] erro na geração:', pdfErr.message);
     }
@@ -1159,6 +1195,8 @@ app.post('/api/admin/inserir-e-gerar', async (req, res) => {
       const pdfPath = await gerarPDF(lead, relatorio);
       db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, uuid);
       console.log(`[ADMIN] PDF pronto uuid=${uuid}`);
+      const leadComPdf = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(uuid);
+      await enviarRelatorioPorEmail(leadComPdf, pdfPath);
     } catch (e) {
       console.error('[ADMIN] erro PDF:', e.message);
     }
