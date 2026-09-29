@@ -1083,9 +1083,20 @@ app.post('/api/criar-sessao', (req, res) => {
 
 // POST /api/webhook/kiwify
 app.post('/api/webhook/kiwify', (req, res) => {
+  // A Kiwify assina o JSON com o token configurado no webhook e envia
+  // a assinatura no parâmetro `signature` da URL. Mantemos também o
+  // formato de token direto para compatibilidade com integrações antigas.
   const tokenRecebido = req.query.token || req.headers['x-kiwify-token'] || '';
-  if (KIWIFY_SECRET && tokenRecebido !== KIWIFY_SECRET) {
-    console.warn('[KIWIFY] token inválido:', tokenRecebido);
+  const assinaturaRecebida = req.query.signature || req.headers['x-kiwify-signature'] || '';
+  const assinaturaEsperada = KIWIFY_SECRET
+    ? crypto.createHmac('sha1', KIWIFY_SECRET).update(JSON.stringify(req.body)).digest('hex')
+    : '';
+  const assinaturaValida = assinaturaRecebida && assinaturaEsperada &&
+    assinaturaRecebida.length === assinaturaEsperada.length &&
+    crypto.timingSafeEqual(Buffer.from(assinaturaRecebida), Buffer.from(assinaturaEsperada));
+  const autenticado = !KIWIFY_SECRET || tokenRecebido === KIWIFY_SECRET || assinaturaValida;
+  if (!autenticado) {
+    console.warn('[KIWIFY] assinatura/token inválido');
     return res.status(401).json({ error: 'unauthorized' });
   }
 
