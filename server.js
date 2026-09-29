@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const fetch = require('node-fetch');
 const Anthropic = require('@anthropic-ai/sdk');
 const puppeteer = require('puppeteer');
+const tzlookup = require('tz-lookup');
+const swissEphemeris = require('@swisseph/node');
 const fs = require('fs');
 const path = require('path');
 
@@ -29,6 +31,7 @@ db.exec(`
     horario TEXT,
     cidade TEXT,
     intencao TEXT,
+    mapa_natal TEXT,
     signo TEXT,
     area TEXT,
     situacao TEXT,
@@ -47,6 +50,16 @@ try { db.exec(`ALTER TABLE leads ADD COLUMN pdf_path TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN horario TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN cidade TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN intencao TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN mapa_natal TEXT`); } catch(e) {}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS geocodes (
+    cidade TEXT PRIMARY KEY,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    display_name TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )
+`);
 
 const PIXEL_ID = process.env.PIXEL_ID || '834191219576803';
 const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
@@ -58,6 +71,155 @@ const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : nul
 function sha256(value) {
   if (!value) return null;
   return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
+}
+
+const ZODIAC_SIGNS = [
+  'Áries', 'Touro', 'Gêmeos', 'Câncer', 'Leão', 'Virgem',
+  'Libra', 'Escorpião', 'Sagitário', 'Capricórnio', 'Aquário', 'Peixes'
+];
+
+function parseBirthDate(value) {
+  const match = String(value || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) throw new Error('data de nascimento inválida');
+  return { day: Number(match[1]), month: Number(match[2]), year: Number(match[3]) };
+}
+
+function parseBirthTime(value) {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) throw new Error('horário de nascimento inválido');
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) throw new Error('horário de nascimento inválido');
+  return { hour, minute };
+}
+
+async function geocodeCity(city) {
+  const normalized = String(city || '').trim().toLowerCase();
+  if (!normalized) throw new Error('cidade de nascimento não informada');
+
+  const cached = db.prepare('SELECT latitude, longitude, display_name FROM geocodes WHERE cidade = ?').get(normalized);
+  if (cached) return cached;
+
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&q=${encodeURIComponent(city)}`;
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'horoscopo-vip/1.0 (mapa-natal)' }
+  });
+  if (!response.ok) throw new Error(`geocodificação indisponível (${response.status})`);
+  const results = await response.json();
+  const result = results[0];
+  if (!result || !Number.isFinite(Number(result.lat)) || !Number.isFinite(Number(result.lon))) {
+    throw new Error('cidade de nascimento não encontrada');
+  }
+
+  const location = {
+    latitude: Number(result.lat),
+    longitude: Number(result.lon),
+    display_name: result.display_name || city
+  };
+  db.prepare('INSERT OR REPLACE INTO geocodes (cidade, latitude, longitude, display_name) VALUES (?, ?, ?, ?)')
+    .run(normalized, location.latitude, location.longitude, location.display_name);
+  return location;
+}
+
+function localDateToUtc({ year, month, day, hour, minute }, timeZone) {
+  const target = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let guess = target;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(guess))
+      .filter(part => part.type !== 'literal')
+      .map(part => [part.type, Number(part.value)]));
+    const displayed = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    guess += target - displayed;
+  }
+  return new Date(guess);
+}
+
+function signForLongitude(longitude) {
+  const normalized = ((longitude % 360) + 360) % 360;
+  return ZODIAC_SIGNS[Math.floor(normalized / 30)];
+}
+
+function degreeInSign(longitude) {
+  const normalized = ((longitude % 360) + 360) % 360;
+  return Number((normalized % 30).toFixed(2));
+}
+
+function houseForLongitude(longitude, cusps) {
+  const normalized = ((longitude % 360) + 360) % 360;
+  for (let house = 1; house <= 12; house += 1) {
+    const start = ((cusps[house] % 360) + 360) % 360;
+    const end = ((cusps[house === 12 ? 1 : house + 1] % 360) + 360) % 360;
+    const inside = start < end
+      ? normalized >= start && normalized < end
+      : normalized >= start || normalized < end;
+    if (inside) return house;
+  }
+  return null;
+}
+
+async function calcularMapaNatal(lead) {
+  const birthDate = parseBirthDate(lead.nascimento);
+  const birthTime = parseBirthTime(lead.horario);
+  const location = await geocodeCity(lead.cidade);
+  const timeZone = tzlookup(location.latitude, location.longitude);
+  const utcDate = localDateToUtc({ ...birthDate, ...birthTime }, timeZone);
+  const jd = swissEphemeris.julianDay(
+    utcDate.getUTCFullYear(), utcDate.getUTCMonth() + 1, utcDate.getUTCDate(),
+    utcDate.getUTCHours() + utcDate.getUTCMinutes() / 60 + utcDate.getUTCSeconds() / 3600
+  );
+  const houses = swissEphemeris.calculateHouses(jd, location.latitude, location.longitude, swissEphemeris.HouseSystem.Placidus);
+  const bodies = {
+    Sol: swissEphemeris.Planet.Sun,
+    Lua: swissEphemeris.Planet.Moon,
+    Mercúrio: swissEphemeris.Planet.Mercury,
+    Vênus: swissEphemeris.Planet.Venus,
+    Marte: swissEphemeris.Planet.Mars,
+    Júpiter: swissEphemeris.Planet.Jupiter,
+    Saturno: swissEphemeris.Planet.Saturn,
+    Urano: swissEphemeris.Planet.Uranus,
+    Netuno: swissEphemeris.Planet.Neptune,
+    Plutão: swissEphemeris.Planet.Pluto
+  };
+  const planetas = {};
+  for (const [name, body] of Object.entries(bodies)) {
+    const position = swissEphemeris.calculatePosition(jd, body);
+    planetas[name] = {
+      longitude: Number(position.longitude.toFixed(4)),
+      latitude: Number(position.latitude.toFixed(4)),
+      grau: degreeInSign(position.longitude),
+      signo: signForLongitude(position.longitude),
+      casa: houseForLongitude(position.longitude, houses.cusps),
+      retrógrado: position.longitudeSpeed < 0
+    };
+  }
+
+  const angles = {
+    ascendente: { longitude: Number(houses.ascendant.toFixed(4)), signo: signForLongitude(houses.ascendant), grau: degreeInSign(houses.ascendant) },
+    meioDoCeu: { longitude: Number(houses.mc.toFixed(4)), signo: signForLongitude(houses.mc), grau: degreeInSign(houses.mc) }
+  };
+  const cuspas = Array.from({ length: 12 }, (_, index) => ({
+    casa: index + 1,
+    longitude: Number(houses.cusps[index + 1].toFixed(4)),
+    signo: signForLongitude(houses.cusps[index + 1]),
+    grau: degreeInSign(houses.cusps[index + 1])
+  }));
+
+  return {
+    sistema: 'Tropical · Placidus',
+    nascimento: { data: lead.nascimento, horario: lead.horario, cidade: lead.cidade, fuso: timeZone, utc: utcDate.toISOString() },
+    localizacao: { latitude: location.latitude, longitude: location.longitude, nome: location.display_name },
+    angulos: angles,
+    planetas,
+    casas: cuspas,
+    calculadoEm: new Date().toISOString()
+  };
 }
 
 async function sendCapiEvent(eventName, email, name, value, eventId) {
@@ -90,6 +252,16 @@ async function sendCapiEvent(eventName, email, name, value, eventId) {
 }
 
 async function gerarRelatorio(lead) {
+  let mapaNatal = null;
+  try {
+    mapaNatal = lead.mapa_natal ? JSON.parse(lead.mapa_natal) : await calcularMapaNatal(lead);
+    if (!lead.mapa_natal && mapaNatal) {
+      db.prepare('UPDATE leads SET mapa_natal = ? WHERE uuid = ?').run(JSON.stringify(mapaNatal), lead.uuid);
+    }
+  } catch (error) {
+    console.error('[MAPA NATAL] erro:', error.message);
+  }
+
   if (!anthropic) {
     console.warn('[CLAUDE] ANTHROPIC_API_KEY não configurada');
     return null;
@@ -156,6 +328,11 @@ async function gerarRelatorio(lead) {
 - Horário de nascimento: ${lead.horario || 'não informado'}
 - Cidade de nascimento: ${lead.cidade || 'não informada'}
 - Intenção principal da leitura: ${lead.intencao || 'autoconhecimento'}
+
+Dados calculados do mapa natal:
+${mapaNatal ? JSON.stringify(mapaNatal) : 'Mapa natal indisponível; não invente posições planetárias.'}
+
+Quando o mapa natal estiver disponível, use somente as posições e casas fornecidas acima para falar de Sol, Lua, Ascendente e planetas. Não invente graus, casas ou aspectos. Explique que a leitura é simbólica e não substitui orientação médica, financeira ou profissional.
 - Signo: ${lead.signo}
 - Área de foco: ${lead.area}
 - Situação atual: ${lead.situacao}
@@ -229,6 +406,9 @@ function gerarHTML(lead, dados) {
   // Garante que afirmacoes e calendario são arrays
   const afirmacoes = Array.isArray(dados.afirmacoes) ? dados.afirmacoes : [];
   const calendario = Array.isArray(dados.calendario) ? dados.calendario : [];
+  let mapaNatal = null;
+  try { mapaNatal = lead.mapa_natal ? JSON.parse(lead.mapa_natal) : null; } catch (_) {}
+  const mapaPlanetas = mapaNatal ? Object.entries(mapaNatal.planetas || {}) : [];
 
   const divider = `<div class="divider"><span>✦</span><span>✦</span><span>✦</span></div>`;
 
@@ -506,6 +686,29 @@ function gerarHTML(lead, dados) {
     margin-bottom: 0;
   }
 
+  .mapa-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .mapa-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 1px solid rgba(243,186,47,0.18);
+    border-radius: 8px;
+    background: rgba(243,186,47,0.04);
+    font-size: 10.5pt;
+  }
+
+  .mapa-item span {
+    color: var(--texto-suave);
+    font-size: 9.5pt;
+  }
+
   /* ─── Calendário ─── */
   .calendario-lista {
     list-style: none;
@@ -647,7 +850,7 @@ function gerarHTML(lead, dados) {
 <body>
 
 <!-- ════════════════════ PÁGINA 1 — CAPA ════════════════════ -->
-<div class="pagina capa">
+  <div class="pagina capa">
   <div class="capa-badge">✦ Relatório Exclusivo · Edição VIP ✦</div>
   <div class="capa-simbolo">${simbolo}</div>
   <div class="capa-subtitulo">Horóscopo Personalizado</div>
@@ -662,15 +865,31 @@ function gerarHTML(lead, dados) {
 <!-- ════════════════════ PÁGINA 2 — VISÃO GERAL ════════════════════ -->
 ${paginaSecao(2, `Visão Geral de ${mesAno}`, '🌌', paragrafo(dados.visaoGeral || ''))}
 
+${mapaNatal ? `
+<div class="pagina secao-pagina">
+  <div class="pagina-numero">3 / 11</div>
+  <div class="secao-icone">🪐</div>
+  <h2 class="secao-titulo">Seu Mapa Natal</h2>
+  ${divider}
+  <div class="secao-corpo">
+    <p><strong>Nascimento:</strong> ${mapaNatal.nascimento?.data || lead.nascimento} às ${mapaNatal.nascimento?.horario || lead.horario}, ${mapaNatal.nascimento?.cidade || lead.cidade}.</p>
+    <p><strong>Ascendente:</strong> ${mapaNatal.angulos?.ascendente?.signo || '—'} a ${mapaNatal.angulos?.ascendente?.grau ?? '—'}° · <strong>Meio do Céu:</strong> ${mapaNatal.angulos?.meioDoCeu?.signo || '—'} a ${mapaNatal.angulos?.meioDoCeu?.grau ?? '—'}°</p>
+    <div class="mapa-grid">
+      ${mapaPlanetas.map(([nome, planeta]) => `<div class="mapa-item"><strong>${nome}</strong><span>${planeta.signo} · ${planeta.grau}° · Casa ${planeta.casa || '—'}${planeta.retrógrado ? ' · retrógrado' : ''}</span></div>`).join('')}
+    </div>
+  </div>
+  <div class="rodape">Mapa calculado com efemérides astronômicas · ${lead.nome}</div>
+</div>` : ''}
+
 <!-- ════════════════════ PÁGINAS 3-6 — SEÇÕES DA ÁREA ESCOLHIDA ════════════════════ -->
-${paginaSecao(3, titulosSecoes[lead.area]?.[0] || lead.area, iconesSecoes[lead.area]?.[0] || '✨', paragrafo(dados.secao2 || ''))}
-${paginaSecao(4, titulosSecoes[lead.area]?.[1] || lead.area, iconesSecoes[lead.area]?.[1] || '✨', paragrafo(dados.secao3 || ''))}
-${paginaSecao(5, titulosSecoes[lead.area]?.[2] || lead.area, iconesSecoes[lead.area]?.[2] || '✨', paragrafo(dados.secao4 || ''))}
-${paginaSecao(6, titulosSecoes[lead.area]?.[3] || lead.area, iconesSecoes[lead.area]?.[3] || '✨', paragrafo(dados.secao5 || ''))}
+${paginaSecao(4, titulosSecoes[lead.area]?.[0] || lead.area, iconesSecoes[lead.area]?.[0] || '✨', paragrafo(dados.secao2 || ''))}
+${paginaSecao(5, titulosSecoes[lead.area]?.[1] || lead.area, iconesSecoes[lead.area]?.[1] || '✨', paragrafo(dados.secao3 || ''))}
+${paginaSecao(6, titulosSecoes[lead.area]?.[2] || lead.area, iconesSecoes[lead.area]?.[2] || '✨', paragrafo(dados.secao4 || ''))}
+${paginaSecao(7, titulosSecoes[lead.area]?.[3] || lead.area, iconesSecoes[lead.area]?.[3] || '✨', paragrafo(dados.secao5 || ''))}
 
 <!-- ════════════════════ PÁGINA 7 — CALENDÁRIO ════════════════════ -->
 <div class="pagina secao-pagina">
-  <div class="pagina-numero">7 / 10</div>
+  <div class="pagina-numero">8 / 11</div>
   <div class="secao-icone">📅</div>
   <h2 class="secao-titulo">Calendário Astral de ${mesAno}</h2>
   ${divider}
@@ -688,11 +907,11 @@ ${paginaSecao(6, titulosSecoes[lead.area]?.[3] || lead.area, iconesSecoes[lead.a
 </div>
 
 <!-- ════════════════════ PÁGINA 8 — TRÂNSITOS ════════════════════ -->
-${paginaSecao(8, 'Trânsitos Planetários', '🪐', paragrafo(dados.transitos || ''))}
+${paginaSecao(9, 'Trânsitos Planetários', '🪐', paragrafo(dados.transitos || ''))}
 
 <!-- ════════════════════ PÁGINA 9 — MENSAGEM CANALIZADA ════════════════════ -->
 <div class="pagina secao-pagina">
-  <div class="pagina-numero">9 / 10</div>
+  <div class="pagina-numero">10 / 11</div>
   <div class="secao-icone">🔮</div>
   <h2 class="secao-titulo">Mensagem dos Astros para Você</h2>
   ${divider}
@@ -718,7 +937,7 @@ ${paginaSecao(8, 'Trânsitos Planetários', '🪐', paragrafo(dados.transitos ||
 
 <!-- ════════════════════ PÁGINA 10 — ENCERRAMENTO ════════════════════ -->
 <div class="pagina secao-pagina">
-  <div class="pagina-numero">10 / 10</div>
+  <div class="pagina-numero">11 / 11</div>
   <div class="secao-icone">🌟</div>
   <h2 class="secao-titulo">Sua Jornada Continua</h2>
   ${divider}
@@ -890,7 +1109,7 @@ app.get('/api/relatorio/:uuid', (req, res) => {
   const lead = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(req.params.uuid);
   if (!lead) return res.status(404).json({ error: 'não encontrado' });
   if (!lead.paid) return res.status(403).json({ error: 'pagamento não confirmado' });
-  res.json({ nome: lead.nome, signo: lead.signo, area: lead.area, relatorio: lead.relatorio });
+  res.json({ nome: lead.nome, signo: lead.signo, area: lead.area, mapaNatal: lead.mapa_natal ? JSON.parse(lead.mapa_natal) : null, relatorio: lead.relatorio });
 });
 
 // GET /api/pdf/:uuid
