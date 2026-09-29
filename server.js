@@ -355,7 +355,7 @@ async function gerarRelatorio(lead) {
   const secoes = secoesPorArea[lead.area] || secoesPorArea['Amor'];
   const substituir = (txt) => txt.replace(/{nome}/g, lead.nome).replace(/{signo}/g, lead.signo).replace(/{situacao}/g, lead.situacao).replace(/{sentimento}/g, lead.sentimento);
 
-  const prompt = `Você é um astrólogo especialista de alto nível. Gere um relatório de horóscopo VIP FOCADO EM ${lead.area.toUpperCase()}, profundo, místico e extremamente personalizado para:
+  const prompt = `Você é um astrólogo especialista de alto nível. Gere um relatório de mapa astral e previsões VIP FOCADO EM ${lead.area.toUpperCase()}, profundo, místico e extremamente personalizado para:
 
 - Nome: ${lead.nome}
 - Data de nascimento: ${lead.nascimento}
@@ -453,7 +453,7 @@ function gerarHTML(lead, dados) {
       <h2 class="secao-titulo">${titulo}</h2>
       ${divider}
       <div class="secao-corpo">${conteudo}</div>
-      <div class="rodape">Horóscopo VIP · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
+      <div class="rodape">Mapa e Previsões · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
     </div>
   `;
 
@@ -464,7 +464,7 @@ function gerarHTML(lead, dados) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Horóscopo VIP · ${lead.nome} · ${mesAno}</title>
+<title>Mapa e Previsões · ${lead.nome} · ${mesAno}</title>
 <style>
   @font-face {
     font-family: 'Cinzel';
@@ -887,11 +887,11 @@ function gerarHTML(lead, dados) {
   <div class="pagina capa">
   <div class="capa-badge">✦ Relatório Exclusivo · Edição VIP ✦</div>
   <div class="capa-simbolo">${simbolo}</div>
-  <div class="capa-subtitulo">Horóscopo Personalizado</div>
+  <div class="capa-subtitulo">Mapa astral personalizado</div>
   <div class="capa-nome">${lead.nome}</div>
   <div class="capa-signo">${lead.signo} · ${lead.nascimento || ''}</div>
   <div class="capa-linha"></div>
-  <div class="capa-titulo-principal">Horóscopo VIP<br>${mesAno}</div>
+  <div class="capa-titulo-principal">Mapa e Previsões<br>${mesAno}</div>
   <div class="capa-mes">✦ Revelações Astrais Exclusivas ✦</div>
   <div class="capa-rodape">Produzido especialmente para você · Documento confidencial</div>
 </div>
@@ -937,7 +937,7 @@ ${paginaSecao(7, titulosSecoes[lead.area]?.[3] || lead.area, iconesSecoes[lead.a
       `).join('')}
     </ul>
   </div>
-  <div class="rodape">Horóscopo VIP · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
+  <div class="rodape">Mapa e Previsões · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
 </div>
 
 <!-- ════════════════════ PÁGINA 8 — TRÂNSITOS ════════════════════ -->
@@ -966,7 +966,7 @@ ${paginaSecao(9, 'Trânsitos Planetários', '🪐', paragrafo(dados.transitos ||
       `).join('')}
     </ul>
   </div>
-  <div class="rodape">Horóscopo VIP · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
+  <div class="rodape">Mapa e Previsões · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
 </div>
 
 <!-- ════════════════════ PÁGINA 10 — ENCERRAMENTO ════════════════════ -->
@@ -993,7 +993,7 @@ ${paginaSecao(9, 'Trânsitos Planetários', '🪐', paragrafo(dados.transitos ||
       ✦ Os astros sempre falam — basta aprender a ouvi-los ✦
     </div>
   </div>
-  <div class="rodape">Horóscopo VIP · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
+  <div class="rodape">Mapa e Previsões · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
 </div>
 
 </body>
@@ -1165,7 +1165,7 @@ app.get('/api/pdf/:uuid', async (req, res) => {
       db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, lead.uuid);
     }
 
-    const nomeArquivo = `Horoscopo_VIP_${(lead.nome || 'horoscopo').replace(/\s+/g, '_')}_Agosto2026.pdf`;
+    const nomeArquivo = `Mapa_Previsoes_${(lead.nome || 'mapa').replace(/\s+/g, '_')}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
     fs.createReadStream(pdfPath).pipe(res);
