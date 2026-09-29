@@ -26,6 +26,8 @@ db.exec(`
     nome TEXT,
     email TEXT,
     nascimento TEXT,
+    horario TEXT,
+    cidade TEXT,
     signo TEXT,
     area TEXT,
     situacao TEXT,
@@ -41,6 +43,8 @@ db.exec(`
 // Migrações seguras
 try { db.exec(`ALTER TABLE leads ADD COLUMN relatorio TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN pdf_path TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN horario TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN cidade TEXT`); } catch(e) {}
 
 const PIXEL_ID = process.env.PIXEL_ID || '834191219576803';
 const ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
@@ -147,6 +151,8 @@ async function gerarRelatorio(lead) {
 
 - Nome: ${lead.nome}
 - Data de nascimento: ${lead.nascimento}
+- Horário de nascimento: ${lead.horario || 'não informado'}
+- Cidade de nascimento: ${lead.cidade || 'não informada'}
 - Signo: ${lead.signo}
 - Área de foco: ${lead.area}
 - Situação atual: ${lead.situacao}
@@ -804,14 +810,14 @@ app.use((req, res, next) => {
 
 // POST /api/criar-sessao
 app.post('/api/criar-sessao', (req, res) => {
-  const { uuid: uuidRecebido, nome, email, nascimento, signo, area, situacao, sentimento, sinais } = req.body;
+  const { uuid: uuidRecebido, nome, email, nascimento, horario, cidade, signo, area, situacao, sentimento, sinais } = req.body;
   if (!nome) return res.status(400).json({ error: 'nome obrigatório' });
 
   const uuid = uuidRecebido || gerarUUID();
   db.prepare(`
-    INSERT INTO leads (uuid, nome, email, nascimento, signo, area, situacao, sentimento, sinais)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(uuid, nome, email || '', nascimento || '', signo || '', area || '', situacao || '', sentimento || '', sinais || '');
+    INSERT INTO leads (uuid, nome, email, nascimento, horario, cidade, signo, area, situacao, sentimento, sinais)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(uuid, nome, email || '', nascimento || '', horario || '', cidade || '', signo || '', area || '', situacao || '', sentimento || '', sinais || '');
 
   console.log(`[SESSAO] criada uuid=${uuid} nome=${nome} signo=${signo} area=${area}`);
   if (email) sendCapiEvent('Lead', email, nome, null, 'lead_' + uuid).catch(() => {});
@@ -913,13 +919,13 @@ app.get('/api/pdf/:uuid', async (req, res) => {
 
 // POST /api/admin/inserir-e-gerar — insere lead manualmente e gera relatório
 app.post('/api/admin/inserir-e-gerar', async (req, res) => {
-  const { uuid, nome, email, nascimento, signo, area, situacao, sentimento, sinais } = req.body;
+  const { uuid, nome, email, nascimento, horario, cidade, signo, area, situacao, sentimento, sinais } = req.body;
   if (!uuid || !nome) return res.status(400).json({ error: 'uuid e nome obrigatórios' });
 
   db.prepare(`
-    INSERT OR REPLACE INTO leads (uuid, nome, email, nascimento, signo, area, situacao, sentimento, sinais, paid)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-  `).run(uuid, nome, email || '', nascimento || '', signo || '', area || '', situacao || '', sentimento || '', sinais || '');
+    INSERT OR REPLACE INTO leads (uuid, nome, email, nascimento, horario, cidade, signo, area, situacao, sentimento, sinais, paid)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `).run(uuid, nome, email || '', nascimento || '', horario || '', cidade || '', signo || '', area || '', situacao || '', sentimento || '', sinais || '');
 
   res.json({ ok: true, msg: 'lead inserido, gerando relatório em background...' });
 
