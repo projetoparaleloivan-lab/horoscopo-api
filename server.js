@@ -1108,15 +1108,24 @@ app.post('/api/webhook/kiwify', (req, res) => {
   const status = body?.order_status || '';
   if (status !== 'paid') return;
 
-  const uuid = body?.tracking?.src || body?.tracking?.sck || '';
+  let uuid = body?.tracking?.src || body?.tracking?.sck || '';
   const email = body?.customer?.email || '';
   const name = body?.customer?.name || '';
   const amount = body?.order?.amount_cents ? body.order.amount_cents / 100 : 14.99;
 
-  if (!uuid) { console.warn('[KIWIFY] uuid não encontrado'); return; }
+  if (!uuid && !email) { console.warn('[KIWIFY] uuid não encontrado'); return; }
 
-  const lead = db.prepare('SELECT * FROM leads WHERE uuid = ?').get(uuid);
-  if (!lead) { console.warn('[KIWIFY] lead não encontrado uuid:', uuid); return; }
+  let lead = uuid ? db.prepare('SELECT * FROM leads WHERE uuid = ?').get(uuid) : null;
+  // Alguns checkouts podem perder o parâmetro sck. Recupera a sessão mais
+  // recente pelo e-mail para não deixar uma compra aprovada sem entrega.
+  if (!lead && email) {
+    lead = db.prepare('SELECT * FROM leads WHERE lower(email) = lower(?) ORDER BY created_at DESC LIMIT 1').get(email);
+    if (lead) {
+      console.warn(`[KIWIFY] UUID não encontrado; lead recuperado pelo e-mail uuid=${lead.uuid}`);
+      uuid = lead.uuid;
+    }
+  }
+  if (!lead) { console.warn('[KIWIFY] lead não encontrado'); return; }
 
   const emailFinal = email || lead.email;
   const nameFinal = name || lead.nome;
