@@ -1108,9 +1108,11 @@ app.post('/api/webhook/kiwify', (req, res) => {
   const status = body?.order_status || '';
   if (status !== 'paid') return;
 
-  let uuid = body?.tracking?.src || body?.tracking?.sck || '';
-  const email = body?.customer?.email || '';
-  const name = body?.customer?.name || '';
+  const tracking = body?.tracking || body?.TrackingParameters || {};
+  const customer = body?.customer || body?.Cliente || {};
+  let uuid = tracking.src || tracking.sck || '';
+  const email = customer.email || '';
+  const name = customer.name || customer.full_name || '';
   const amount = body?.order?.amount_cents ? body.order.amount_cents / 100 : 14.99;
 
   if (!uuid && !email) { console.warn('[KIWIFY] uuid não encontrado'); return; }
