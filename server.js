@@ -371,7 +371,7 @@ async function gerarRelatorio(lead) {
   const secoes = secoesPorArea[lead.area] || secoesPorArea['Amor'];
   const substituir = (txt) => txt.replace(/{nome}/g, lead.nome).replace(/{signo}/g, lead.signo).replace(/{situacao}/g, lead.situacao).replace(/{sentimento}/g, lead.sentimento);
 
-  const prompt = `Você é um astrólogo especialista de alto nível. Gere uma leitura visual e envolvente de mapa astral e previsões, FOCADA EM ${lead.area.toUpperCase()}, para ${lead.nome}. O texto deve parecer uma leitura particular, não um TCC ou artigo acadêmico.
+  const prompt = `Você é um astrólogo responsável por uma leitura personalizada, clara e acolhedora. Gere uma leitura de mapa astral e previsões FOCADA EM ${lead.area.toUpperCase()}, para ${lead.nome}. O texto deve parecer uma conversa particular e útil, não um TCC, artigo acadêmico ou texto de IA.
 
 - Nome: ${lead.nome}
 - Data de nascimento: ${lead.nascimento}
@@ -388,23 +388,23 @@ Quando o mapa natal estiver disponível, use somente as posições e casas forne
 - Situação atual: ${lead.situacao}
 - Sentimento sobre Agosto: ${lead.sentimento}
 
-REGRA CENTRAL DE PERSONALIZAÇÃO: em todas as seções, conecte explicitamente o signo ${lead.signo}, a área escolhida (${lead.area}), a intenção "${lead.intencao || 'autoconhecimento'}" e o sentimento "${lead.sentimento || 'não informado'}". Não escreva previsões genéricas que serviriam para qualquer signo. Use o mapa natal para explicar por que aquela previsão faz sentido para esta pessoa. Prefira parágrafos curtos, subtítulos naturais e frases diretas.
+REGRA CENTRAL DE PERSONALIZAÇÃO: em todas as seções, conecte explicitamente o signo ${lead.signo}, a área escolhida (${lead.area}), a intenção "${lead.intencao || 'autoconhecimento'}" e o sentimento "${lead.sentimento || 'não informado'}". Não escreva previsões genéricas que serviriam para qualquer signo. Use o mapa natal para explicar por que aquela previsão faz sentido para esta pessoa. Escreva em português natural, com parágrafos curtos e frases diretas. Evite clichês como "o universo conspira", "tapeçaria cósmica", "maré de possibilidades", "energia absolutamente fascinante" e qualquer promessa de certeza. Não chame a pessoa de "querido(a)". Não repita o nome em todos os parágrafos. Não invente trânsitos futuros nem fatos que não estejam nos dados.
 
 Retorne SOMENTE um JSON válido com exatamente estas 11 chaves (sem markdown, sem blocos de código):
 
 {
-  "visaoGeral": "${substituir(secoes.s1)} Mínimo 200 palavras.",
-  "mapaLeitura": "Interprete o Sol, a Lua, o Ascendente e os pontos do mapa mais relevantes para ${lead.area}, sempre conectando ${lead.signo} à previsão escolhida. Mínimo 180 palavras.",
-  "secao2": "${substituir(secoes.s2)} Mínimo 180 palavras.",
-  "secao3": "${substituir(secoes.s3)} Mínimo 180 palavras.",
-  "secao4": "${substituir(secoes.s4)} Mínimo 180 palavras.",
-  "secao5": "${substituir(secoes.s5)} Mínimo 180 palavras.",
-  "secao6": "${substituir(secoes.s6)} Mínimo 150 palavras.",
+  "visaoGeral": "${substituir(secoes.s1)} Entre 100 e 140 palavras.",
+  "mapaLeitura": "Interprete o Sol, a Lua, o Ascendente e os pontos do mapa mais relevantes para ${lead.area}, sempre conectando ${lead.signo} à previsão escolhida. Entre 100 e 140 palavras.",
+  "secao2": "${substituir(secoes.s2)} Entre 100 e 140 palavras.",
+  "secao3": "${substituir(secoes.s3)} Entre 100 e 140 palavras.",
+  "secao4": "${substituir(secoes.s4)} Entre 100 e 140 palavras.",
+  "secao5": "${substituir(secoes.s5)} Entre 100 e 140 palavras.",
+  "secao6": "${substituir(secoes.s6)} Entre 90 e 120 palavras.",
   "calendario": ["Dia X de Agosto: evento específico para ${lead.nome}", "Dia X...", "Dia X...", "Dia X...", "Dia X...", "Dia X..."],
-  "transitos": "${substituir(secoes.s8)} Mínimo 200 palavras.",
-  "mensagemCanalizada": "${substituir(secoes.s9)} Entre 120 e 160 palavras.",
+  "transitos": "${substituir(secoes.s8)} Entre 100 e 140 palavras.",
+  "mensagemCanalizada": "${substituir(secoes.s9)} Entre 80 e 110 palavras.",
   "afirmacoes": ["${substituir(secoes.s10).split(':')[0]} 1", "...2", "...3", "...4", "...5", "...6", "...7"],
-  "encerramento": "Fechamento curto, íntimo e motivador, retomando ${lead.signo}, ${lead.area} e a intenção escolhida. Entre 80 e 120 palavras."
+  "encerramento": "Fechamento curto, íntimo e motivador, retomando ${lead.signo}, ${lead.area} e a intenção escolhida. Entre 50 e 80 palavras."
 }
 
 IMPORTANTE: Retorne APENAS o JSON. Sem texto extra. Sem explicações.`;
@@ -1248,7 +1248,9 @@ app.get('/api/pdf/:uuid', async (req, res) => {
     let pdfPath = lead.pdf_path;
 
     // Gera o PDF sob demanda se ainda não existir ou o arquivo foi removido
-    if (!pdfPath || !fs.existsSync(pdfPath)) {
+    // ?refresh=1 permite reconstruir o PDF com o template atual sem gerar
+    // novamente o texto do Claude. Útil após uma atualização visual.
+    if (req.query.refresh === '1' || !pdfPath || !fs.existsSync(pdfPath)) {
       console.log(`[PDF] gerando sob demanda para uuid=${lead.uuid}`);
       pdfPath = await gerarPDF(lead, lead.relatorio);
       db.prepare('UPDATE leads SET pdf_path = ? WHERE uuid = ?').run(pdfPath, lead.uuid);
