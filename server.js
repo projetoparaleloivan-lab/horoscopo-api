@@ -46,6 +46,10 @@ db.exec(`
 `);
 
 // Migrações seguras
+try { db.exec(`ALTER TABLE leads ADD COLUMN email TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN nome TEXT`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN paid INTEGER DEFAULT 0`); } catch(e) {}
+try { db.exec(`ALTER TABLE leads ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN relatorio TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN pdf_path TEXT`); } catch(e) {}
 try { db.exec(`ALTER TABLE leads ADD COLUMN horario TEXT`); } catch(e) {}
