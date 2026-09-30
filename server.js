@@ -290,6 +290,17 @@ async function sendCapiEvent(eventName, email, name, value, eventId) {
   }
 }
 
+function parseJSONFlex(valor) {
+  if (typeof valor !== 'string') return valor;
+  const limpo = valor
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  const inicio = limpo.indexOf('{');
+  const fim = limpo.lastIndexOf('}');
+  return JSON.parse(inicio >= 0 && fim > inicio ? limpo.slice(inicio, fim + 1) : limpo);
+}
+
 async function gerarRelatorio(lead) {
   let mapaNatal = null;
   try {
@@ -409,7 +420,7 @@ IMPORTANTE: Retorne APENAS o JSON. Sem texto extra. Sem explicações.`;
 
     // Tenta parsear como JSON; se falhar, retorna o texto bruto para compatibilidade
     try {
-      const parsed = JSON.parse(texto);
+      const parsed = parseJSONFlex(texto);
       return JSON.stringify(parsed);
     } catch (parseErr) {
       console.warn('[CLAUDE] resposta não é JSON válido, salvando como texto bruto');
@@ -1048,7 +1059,13 @@ ${paginaSecao(9, 'Trânsitos Planetários', '🪐', paragrafo(dados.transitos ||
 async function gerarPDF(lead, relatorioBruto) {
   let dados;
   try {
-    dados = typeof relatorioBruto === 'string' ? JSON.parse(relatorioBruto) : relatorioBruto;
+    if (typeof relatorioBruto === 'string') {
+      // O modelo às vezes envolve o JSON em ```json ... ```. Removemos esse
+      // invólucro e também toleramos texto incidental antes/depois do objeto.
+      dados = parseJSONFlex(relatorioBruto);
+    } else {
+      dados = relatorioBruto;
+    }
   } catch (e) {
     // Se não for JSON, monta um objeto simples com o texto na visão geral
     dados = {
