@@ -360,7 +360,7 @@ async function gerarRelatorio(lead) {
   const secoes = secoesPorArea[lead.area] || secoesPorArea['Amor'];
   const substituir = (txt) => txt.replace(/{nome}/g, lead.nome).replace(/{signo}/g, lead.signo).replace(/{situacao}/g, lead.situacao).replace(/{sentimento}/g, lead.sentimento);
 
-  const prompt = `Você é um astrólogo especialista de alto nível. Gere um relatório de mapa astral e previsões VIP FOCADO EM ${lead.area.toUpperCase()}, profundo, místico e extremamente personalizado para:
+  const prompt = `Você é um astrólogo especialista de alto nível. Gere uma leitura visual e envolvente de mapa astral e previsões, FOCADA EM ${lead.area.toUpperCase()}, para ${lead.nome}. O texto deve parecer uma leitura particular, não um TCC ou artigo acadêmico.
 
 - Nome: ${lead.nome}
 - Data de nascimento: ${lead.nascimento}
@@ -377,10 +377,13 @@ Quando o mapa natal estiver disponível, use somente as posições e casas forne
 - Situação atual: ${lead.situacao}
 - Sentimento sobre Agosto: ${lead.sentimento}
 
-Retorne SOMENTE um JSON válido com exatamente estas 10 chaves (sem markdown, sem blocos de código):
+REGRA CENTRAL DE PERSONALIZAÇÃO: em todas as seções, conecte explicitamente o signo ${lead.signo}, a área escolhida (${lead.area}), a intenção "${lead.intencao || 'autoconhecimento'}" e o sentimento "${lead.sentimento || 'não informado'}". Não escreva previsões genéricas que serviriam para qualquer signo. Use o mapa natal para explicar por que aquela previsão faz sentido para esta pessoa. Prefira parágrafos curtos, subtítulos naturais e frases diretas.
+
+Retorne SOMENTE um JSON válido com exatamente estas 11 chaves (sem markdown, sem blocos de código):
 
 {
   "visaoGeral": "${substituir(secoes.s1)} Mínimo 200 palavras.",
+  "mapaLeitura": "Interprete o Sol, a Lua, o Ascendente e os pontos do mapa mais relevantes para ${lead.area}, sempre conectando ${lead.signo} à previsão escolhida. Mínimo 180 palavras.",
   "secao2": "${substituir(secoes.s2)} Mínimo 180 palavras.",
   "secao3": "${substituir(secoes.s3)} Mínimo 180 palavras.",
   "secao4": "${substituir(secoes.s4)} Mínimo 180 palavras.",
@@ -389,7 +392,8 @@ Retorne SOMENTE um JSON válido com exatamente estas 10 chaves (sem markdown, se
   "calendario": ["Dia X de Agosto: evento específico para ${lead.nome}", "Dia X...", "Dia X...", "Dia X...", "Dia X...", "Dia X..."],
   "transitos": "${substituir(secoes.s8)} Mínimo 200 palavras.",
   "mensagemCanalizada": "${substituir(secoes.s9)} Entre 120 e 160 palavras.",
-  "afirmacoes": ["${substituir(secoes.s10).split(':')[0]} 1", "...2", "...3", "...4", "...5", "...6", "...7"]
+  "afirmacoes": ["${substituir(secoes.s10).split(':')[0]} 1", "...2", "...3", "...4", "...5", "...6", "...7"],
+  "encerramento": "Fechamento curto, íntimo e motivador, retomando ${lead.signo}, ${lead.area} e a intenção escolhida. Entre 80 e 120 palavras."
 }
 
 IMPORTANTE: Retorne APENAS o JSON. Sem texto extra. Sem explicações.`;
@@ -450,6 +454,7 @@ function gerarHTML(lead, dados) {
   const mapaPlanetas = mapaNatal ? Object.entries(mapaNatal.planetas || {}) : [];
 
   const divider = `<div class="divider"><span>✦</span><span>✦</span><span>✦</span></div>`;
+  const foco = `<div class="foco-pill"><span>FOCO DA LEITURA</span><strong>${lead.signo} · ${lead.area}</strong><em>${lead.intencao || 'Sua intenção pessoal'}</em></div>`;
 
   const paginaSecao = (numero, titulo, icone, conteudo) => `
     <div class="pagina secao-pagina">
@@ -457,6 +462,7 @@ function gerarHTML(lead, dados) {
       <div class="secao-icone">${icone}</div>
       <h2 class="secao-titulo">${titulo}</h2>
       ${divider}
+      ${foco}
       <div class="secao-corpo">${conteudo}</div>
       <div class="rodape">Mapa e Previsões · ${lead.nome} · ${lead.signo} · ${mesAno}</div>
     </div>
@@ -725,12 +731,42 @@ function gerarHTML(lead, dados) {
     margin-bottom: 0;
   }
 
+  .foco-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 auto 24px;
+    padding: 7px 14px;
+    border: 1px solid rgba(243,186,47,0.28);
+    border-radius: 999px;
+    background: rgba(243,186,47,0.07);
+    color: var(--dourado-claro);
+    font-size: 8.5pt;
+    line-height: 1.2;
+  }
+
+  .foco-pill span { color: var(--lilas-brilhante); letter-spacing: 1.5px; font-size: 7pt; }
+  .foco-pill strong { color: var(--dourado-claro); }
+  .foco-pill em { color: var(--texto-suave); font-style: normal; }
+
   .mapa-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     margin-top: 24px;
   }
+
+  .mapa-leitura {
+    margin-bottom: 22px;
+    padding: 16px 18px;
+    border-left: 3px solid var(--magenta-astral);
+    border-radius: 0 10px 10px 0;
+    background: linear-gradient(135deg, rgba(217,70,239,0.08), rgba(129,140,248,0.05));
+  }
+
+  .mapa-leitura p { margin: 0; font-size: 10.8pt; line-height: 1.7; }
 
   .mapa-item {
     display: flex;
@@ -910,7 +946,9 @@ ${mapaNatal ? `
   <div class="secao-icone">🪐</div>
   <h2 class="secao-titulo">Seu Mapa Natal</h2>
   ${divider}
+  ${foco}
   <div class="secao-corpo">
+    <div class="mapa-leitura">${paragrafo(dados.mapaLeitura || `Seu mapa natal é a base simbólica desta leitura de ${lead.area}.` )}</div>
     <p><strong>Nascimento:</strong> ${mapaNatal.nascimento?.data || lead.nascimento} às ${mapaNatal.nascimento?.horario || lead.horario}, ${mapaNatal.nascimento?.cidade || lead.cidade}.</p>
     <p><strong>Ascendente:</strong> ${mapaNatal.angulos?.ascendente?.signo || '—'} a ${mapaNatal.angulos?.ascendente?.grau ?? '—'}° · <strong>Meio do Céu:</strong> ${mapaNatal.angulos?.meioDoCeu?.signo || '—'} a ${mapaNatal.angulos?.meioDoCeu?.grau ?? '—'}°</p>
     <div class="mapa-grid">
@@ -1014,7 +1052,7 @@ async function gerarPDF(lead, relatorioBruto) {
   } catch (e) {
     // Se não for JSON, monta um objeto simples com o texto na visão geral
     dados = {
-      visaoGeral: relatorioBruto || '',
+      visaoGeral: relatorioBruto || '', mapaLeitura: '',
       secao2: '', secao3: '', secao4: '', secao5: '', secao6: '',
       calendario: [], transitos: '', mensagemCanalizada: '',
       afirmacoes: [], encerramento: ''
