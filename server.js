@@ -1136,8 +1136,15 @@ app.post('/api/webhook/kiwify', (req, res) => {
   const emailFinal = email || lead.email;
   const nameFinal = name || lead.nome;
 
-  db.prepare('UPDATE leads SET paid = 1, email = CASE WHEN email = "" THEN ? ELSE email END, nome = CASE WHEN nome = "" THEN ? ELSE nome END WHERE uuid = ?')
-    .run(emailFinal, nameFinal, uuid);
+  // Mantém compatibilidade com volumes SQLite criados por versões antigas.
+  db.prepare('UPDATE leads SET paid = 1 WHERE uuid = ?').run(uuid);
+  const leadColumns = new Set(db.prepare('PRAGMA table_info(leads)').all().map(column => column.name));
+  if (leadColumns.has('email') && emailFinal) {
+    db.prepare('UPDATE leads SET email = ? WHERE uuid = ?').run(emailFinal, uuid);
+  }
+  if (leadColumns.has('nome') && nameFinal) {
+    db.prepare('UPDATE leads SET nome = ? WHERE uuid = ?').run(nameFinal, uuid);
+  }
 
   sendCapiEvent('Purchase', emailFinal, nameFinal, amount, 'purchase_' + uuid).catch(console.error);
   console.log(`[KIWIFY] compra confirmada uuid=${uuid} nome=${nameFinal}`);
